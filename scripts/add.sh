@@ -19,6 +19,19 @@
 # Classic encodings (ESC DEL, ESC b/f, ctrl keys) are handled as
 # fallbacks so word ops work on plain terminals too.
 set -u
+
+# FIRST: silence the tty. The popup opens with echo on, and anything the
+# user types before raw mode is set gets echoed at the home position as
+# a stray artifact — typed-ahead keys stay in the input queue and are
+# consumed by the editor, so fast typists lose nothing.
+stty -echo -icrnl 2>/dev/null || true    # echo off; Enter stays \r, ^J is \n
+printf '\e[>4;2m\e[>1u'                  # modifyOtherKeys=2 + kitty push
+cleanup() {
+  printf '\e[<u\e[>4;0m\e[?25h'
+  stty echo icrnl 2>/dev/null || true
+}
+trap cleanup EXIT
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/helpers.sh disable=SC1091
 . "$DIR/helpers.sh"
@@ -55,19 +68,11 @@ preview="${preview# }"
 preview="${preview% }"
 maxw=56
 [ "${#preview}" -gt "$maxw" ] && preview="${preview:0:$maxw}$ELL"
-printf '\n   \033[2m%s %s\033[0m\n' "$BAR" "$preview"
+# full clear first: wipes anything the tty echoed before raw mode took
+printf '\e[2J\e[H\n   \033[2m%s %s\033[0m\n' "$BAR" "$preview"
 ORIGIN=4
 
 export LC_ALL=C   # byte-indexed buffer; motion helpers handle UTF-8
-
-# ── raw keyboard setup ────────────────────────────────────────────────────
-stty -icrnl 2>/dev/null || true          # keep Enter as \r, Ctrl+J as \n
-printf '\e[>4;2m\e[>1u'                  # modifyOtherKeys=2 + kitty push
-cleanup() {
-  printf '\e[<u\e[>4;0m\e[?25h'
-  stty icrnl 2>/dev/null || true
-}
-trap cleanup EXIT
 
 HINT="enter save $SEP shift+enter newline $SEP esc cancel"
 
