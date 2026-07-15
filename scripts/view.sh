@@ -62,13 +62,13 @@ build() {
     base="$(basename "$f")"
     epoch="${base%%-*}"
     when="$(fmt_time "$epoch")"
-    note="$(head -n 1 "$f")"
+    note="$(unesc_note "$(head -n 1 "$f")")"
 
     BUF+=("")
     # top edge with a "curl" on the right corner
     BUF+=("  ${PAPER}${EDGE} $(printf '%*s' "$INNER" '')${RESET}${EDGE}◣${RESET}")
     paper_line "${DIM}" "✎ $when"
-    # wrapped note text, bold
+    # wrapped note text (possibly multiline), bold
     while IFS= read -r line; do
       paper_line "${BOLD}" "$line"
     done < <(printf '%s\n' "$note" | fold -s -w "$INNER")

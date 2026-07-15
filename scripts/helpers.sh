@@ -23,6 +23,19 @@ note_count() {
   list_notes | wc -l | tr -d ' '
 }
 
+# Notes may be multiline but are stored on line 1 of the note file —
+# newlines and backslashes are escaped on save, undone on read.
+esc_note() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//$'\n'/\\n}"
+  printf '%s' "$s"
+}
+
+unesc_note() {
+  printf '%b' "$1"
+}
+
 # Epoch → "Jul 15 14:32" (BSD date first, GNU fallback).
 fmt_time() {
   date -r "$1" '+%b %d %H:%M' 2>/dev/null || date -d "@$1" '+%b %d %H:%M'
@@ -45,15 +58,22 @@ clip_copy() {
 }
 
 # Render all notes as markdown: "## note (time)" + "> selection" blocks.
+# A multiline note becomes heading (first line) + paragraph (the rest).
 notes_as_markdown() {
-  local f base epoch first=1
+  local f base epoch note head rest first=1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     base="$(basename "$f")"
     epoch="${base%%-*}"
+    note="$(unesc_note "$(head -n 1 "$f")")"
+    head="${note%%$'\n'*}"
+    rest=''
+    [ "$note" != "$head" ] && rest="${note#*$'\n'}"
     [ "$first" = 1 ] || printf '\n'
     first=0
-    printf '## %s  (%s)\n\n' "$(head -n 1 "$f")" "$(fmt_time "$epoch")"
+    printf '## %s  (%s)\n' "$head" "$(fmt_time "$epoch")"
+    [ -n "$rest" ] && printf '\n%s\n' "$rest"
+    printf '\n'
     tail -n +2 "$f" | sed 's/^/> /'
   done < <(list_notes)
 }
