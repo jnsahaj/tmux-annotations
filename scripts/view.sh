@@ -15,9 +15,9 @@ COPY_KEY="$(opt_key @annotations-copy-key Y)"
 DELETE_KEY="$(opt_key @annotations-delete-key d)"
 
 if has_utf8; then
-  PEN='✎' CURL='◣' BAR='▏' ELL='…' SEP='·'
+  PEN='✎' BAR='│' ELL='…' SEP='·' RULE='─'
 else
-  PEN='*' CURL=' ' BAR='|' ELL='...' SEP='-'
+  PEN='*' BAR='|' ELL='...' SEP='-' RULE='-'
 fi
 
 if [ "${1:-}" != "--inside" ]; then
@@ -31,13 +31,10 @@ if [ "${1:-}" != "--inside" ]; then
 fi
 
 # ── styles ────────────────────────────────────────────────────────────────
-PAPER=$'\e[48;5;229m'   # sticky-note yellow
-INK=$'\e[38;5;236m'     # near-black ink
-FAINT=$'\e[38;5;101m'   # olive-grey for quoted selection
-EDGE=$'\e[38;5;223m'    # curled-corner shadow
 RESET=$'\e[0m'
 BOLD=$'\e[1m'
 DIM=$'\e[2m'
+ACCENT=$'\e[33m'        # timestamps
 
 COLS="${ANNOT_COLS:-}"
 ROWS="${ANNOT_ROWS:-}"
@@ -45,26 +42,26 @@ case "$COLS" in '' | *[!0-9]*) COLS="$(tput cols 2>/dev/null || echo 70)" ;; esa
 case "$ROWS" in '' | *[!0-9]*) ROWS="$(tput lines 2>/dev/null || echo 22)" ;; esac
 case "$COLS" in '' | *[!0-9]*) COLS=70 ;; esac
 case "$ROWS" in '' | *[!0-9]*) ROWS=22 ;; esac
-NOTE_W=$((COLS - 6))
-[ "$NOTE_W" -gt 60 ] && NOTE_W=60
-INNER=$((NOTE_W - 2))
+W=$((COLS - 4))
+[ "$W" -gt 64 ] && W=64
 MAX_SEL_LINES=6
 
 # ── build the full frame into BUF (one entry per screen row) ─────────────
 BUF=()
 
-pad() { # pad/truncate $1 to INNER chars (${#} is char-aware, unlike printf %-*s)
-  local t="$1" n
-  if [ "${#t}" -gt "$INNER" ]; then
-    printf '%s' "${t:0:$INNER}"
-    return
+trunc() { # truncate $1 to $2 chars, appending an ellipsis when cut
+  local t="${1//$'\t'/  }"   # tabs render 8 wide and wreck alignment
+  if [ "${#t}" -gt "$2" ]; then
+    printf '%s%s' "${t:0:$(($2 - 1))}" "$ELL"
+  else
+    printf '%s' "$t"
   fi
-  n=$((INNER - ${#t}))
-  printf '%s%*s' "$t" "$n" ''
 }
 
-paper_line() { # $1 = styled prefix, $2 = raw text
-  BUF+=("  ${PAPER}${INK} ${1}$(pad "$2")${RESET}")
+rule() { # dim horizontal rule with the timestamp inset
+  local label=" $1 " out="$RULE$RULE"
+  while [ "${#out}" -lt $((W - ${#label} - 2)) ]; do out="$out$RULE"; done
+  BUF+=("  ${DIM}${RULE}${RULE}${RESET}${ACCENT}${label}${RESET}${DIM}${out}${RESET}")
 }
 
 build() {
@@ -78,23 +75,19 @@ build() {
     note="$(unesc_note "$(head -n 1 "$f")")"
 
     BUF+=("")
-    # top edge with a "curl" on the right corner
-    BUF+=("  ${PAPER}${EDGE} $(printf '%*s' "$INNER" '')${RESET}${EDGE}${CURL}${RESET}")
-    paper_line "${DIM}" "$PEN $when"
-    # wrapped note text (possibly multiline), bold
+    rule "$when"
+    # note text (possibly multiline), wrapped, bold
     while IFS= read -r line; do
-      paper_line "${BOLD}" "$line"
-    done < <(printf '%s\n' "$note" | fold -s -w "$INNER")
-    paper_line "" ""
-    # quoted selection, capped
+      BUF+=("  ${BOLD}${line}${RESET}")
+    done < <(printf '%s\n' "$note" | fold -s -w "$W")
+    # quoted selection: one-line-per-line, char-truncated with ellipsis
     n="$(tail -n +2 "$f" | wc -l | tr -d ' ')"
     shown=0
     while IFS= read -r line && [ "$shown" -lt "$MAX_SEL_LINES" ]; do
-      paper_line "${FAINT}" "$BAR ${line}"
+      BUF+=("   ${DIM}${BAR} $(trunc "$line" $((W - 4)))${RESET}")
       shown=$((shown + 1))
-    done < <(tail -n +2 "$f" | cut -c1-"$((INNER - 2))")
-    [ "$n" -gt "$MAX_SEL_LINES" ] && paper_line "${FAINT}" "$BAR $ELL $((n - MAX_SEL_LINES)) more lines"
-    BUF+=("  ${PAPER} $(printf '%*s' "$INNER" '') ${RESET}")
+    done < <(tail -n +2 "$f")
+    [ "$n" -gt "$MAX_SEL_LINES" ] && BUF+=("   ${DIM}${BAR} $ELL $((n - MAX_SEL_LINES)) more lines${RESET}")
   done < <(list_notes)
 }
 
@@ -106,7 +99,7 @@ while true; do
   count="$(note_count)"
 
   if [ "$count" -eq 0 ]; then
-    printf '\e[2J\e[H\n   %sall annotations copied & cleared%s\n\n   press any key to close…' "$DIM" "$RESET"
+    printf '\e[2J\e[H\n   %sall annotations copied & cleared%s\n\n   press any key to close' "$DIM" "$RESET"
     IFS= read -rsn1 _
     exit 0
   fi

@@ -31,4 +31,4 @@ fi
 : > "$STAGE"
 tmux send-keys -t "$PANE" -X copy-pipe "cat > '$STAGE'" \; send-keys -t "$PANE" -X clear-selection
 
-open_popup 66 10 ' New Annotation ' "'$DIR/add.sh'" "$cw" "$ch"
+open_popup 66 12 ' New Annotation ' "'$DIR/add.sh'" "$cw" "$ch"

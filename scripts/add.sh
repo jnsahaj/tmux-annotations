@@ -163,8 +163,12 @@ cursor_down() {
   cur=$((nls + col))
 }
 
-# ── drawing (soft wrap: long logical lines break at WRAP_W, every
-# display row keeps the 3-column indent; cursor math mirrors the wrap) ────
+# ── drawing ───────────────────────────────────────────────────────────────
+# Soft wrap at WRAP_W with a 3-column indent on every display row, and a
+# VIEWPORT: only the rows that fit between ORIGIN and the hint line are
+# painted, scrolled so the cursor row stays visible. Without this, text
+# taller than the popup hits the bottom row and the terminal scrolls the
+# whole frame, garbling it.
 WRAP_W=$((COLS - 4))
 [ "$WRAP_W" -lt 10 ] && WRAP_W=10
 
@@ -176,27 +180,38 @@ wrap_rows() { # display rows a logical line of length $1 occupies
   fi
 }
 
+VTOP=0
 draw() {
-  local line pre crow ccol nrows=0
-  printf '\e[?25l\e[?7l\e[%d;1H\e[J' "$ORIGIN"
+  local line pre nrows=0 crow_idx ccol avail i
+  # build display rows
+  DISP=()
   while IFS= read -r line; do
     while [ "${#line}" -gt "$WRAP_W" ]; do
-      printf '   %s\n' "${line:0:$WRAP_W}"
+      DISP+=("${line:0:$WRAP_W}")
       line="${line:$WRAP_W}"
     done
-    printf '   %s\n' "$line"
+    DISP+=("$line")
   done <<< "$buf"
-  printf '\e[%d;1H  \e[2m%s\e[0m' "$ROWS" "$HINT"
-  # cursor: full logical lines before it, then wrap position in its line
+  # cursor position in display rows
   pre="${buf:0:$cur}"
   while [ "$pre" != "${pre#*$'\n'}" ]; do
     line="${pre%%$'\n'*}"
     nrows=$((nrows + $(wrap_rows "${#line}")))
     pre="${pre#*$'\n'}"
   done
-  crow=$((ORIGIN + nrows + ${#pre} / WRAP_W))
-  ccol=$((4 + ${#pre} % WRAP_W))
-  printf '\e[?7h\e[%d;%dH\e[?25h' "$crow" "$ccol"
+  crow_idx=$((nrows + ${#pre} / WRAP_W))
+  ccol=$((${#pre} % WRAP_W))
+  # scroll viewport to keep the cursor row visible
+  avail=$((ROWS - ORIGIN))
+  [ "$avail" -lt 1 ] && avail=1
+  [ "$crow_idx" -lt "$VTOP" ] && VTOP=$crow_idx
+  [ "$crow_idx" -ge $((VTOP + avail)) ] && VTOP=$((crow_idx - avail + 1))
+  printf '\e[?25l\e[?7l\e[%d;1H\e[J' "$ORIGIN"
+  for ((i = VTOP; i < VTOP + avail && i < ${#DISP[@]}; i++)); do
+    printf '   %s\n' "${DISP[$i]}"
+  done
+  printf '\e[%d;1H  \e[2m%s\e[0m' "$ROWS" "$HINT"
+  printf '\e[?7h\e[%d;%dH\e[?25h' $((ORIGIN + crow_idx - VTOP)) $((4 + ccol))
 }
 
 # NOTE: read -t must be an integer — /bin/bash 3.2 rejects fractional
