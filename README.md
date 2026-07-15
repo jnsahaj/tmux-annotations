@@ -17,10 +17,11 @@ into an issue, PR review, or message.
 | overlay | `d` | delete **all** annotations without copying (asks `y/n`) |
 | overlay | `q` / `Esc` / `a` | close |
 
-In the note input, `Enter` saves and `Shift+Enter` inserts a newline
-(requires a terminal with extended-key support — kitty CSI-u or xterm
-modifyOtherKeys — plus `set -g extended-keys on` in tmux; `Alt+Enter`
-and `Ctrl+J` work everywhere). `Esc` cancels.
+In the note input, `Enter` or `Cmd+Enter` saves and `Shift+Enter`
+inserts a newline (Shift+Enter needs a terminal with extended-key
+support — kitty CSI-u or xterm modifyOtherKeys — plus
+`set -g extended-keys on` in tmux; `Alt+Enter` works everywhere).
+`Esc` cancels.
 
 Annotations are invisible until you toggle the overlay, so they never
 cover your content. (tmux's scrollback is read-only and popups are modal,

@@ -43,7 +43,12 @@ t "control bytes ignored"    'a\x04\x06b\r'                         'ab'
 echo "== editor: newlines =="
 t "shift+enter (kitty)"      'a\x1b[13;2ub\r'                       'a\nb'
 t "shift+enter (mok)"        'a\x1b[27;2;13~b\r'                    'a\nb'
-t "alt+enter + ctrl+j"       'x\x1b\ry\x0az\r'                      'x\ny\nz'
+t "alt+enter newline"        'x\x1b\ry\r'                           'x\ny'
+
+echo "== editor: every Enter encoding submits =="
+t "enter as raw LF (icrnl)"  'hi\x0a'                               'hi'
+t "cmd+enter (13;9u)"        'hi\x1b[13;9u'                         'hi'
+t "cmd+enter (13;9:1u)"      'hi\x1b[13;9:1u'                       'hi'
 
 echo "== editor: cursor movement =="
 t "left arrow + insert"      'ab\x1b[Dc\r'                          'acb'
@@ -54,7 +59,7 @@ t "cmd+left (1;9D)"          'bc\x1b[1;9Da\r'                       'abc'
 t "opt+left word (1;3D)"     'hello world\x1b[1;3DX\r'              'hello Xworld'
 t "alt+b classic"            'hi yo\x1bbX\r'                        'hi Xyo'
 t "cmd+up then insert"       'bc\x1b[1;9Aa\r'                       'abc'
-t "up/down across lines"     'abc\x0adef\x1b[A\x1b[3~\r'            'abcdef'
+t "up/down across lines"     'abc\x1b[13;2udef\x1b[A\x1b[3~\r'      'abcdef'
 
 echo "== editor: deletion =="
 t "opt+bs (classic ESC-DEL)" 'hello world\x1b\x7f\r'                'hello '

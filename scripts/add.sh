@@ -8,7 +8,7 @@
 # multibyte characters move/delete as one unit).
 #
 # Keys:
-#   Enter submit · Shift+Enter / Alt+Enter / Ctrl+J newline · Esc cancel
+#   Enter / Cmd+Enter submit · Shift+Enter / Alt+Enter newline · Esc cancel
 #   arrows / Ctrl+B/F move · Opt+arrows / Alt+B/F word · Cmd+arrows,
 #   Home/End, Ctrl+A/E line start/end · Cmd+Up/Down buffer start/end
 #   Backspace / Del char · Opt+Backspace, Ctrl+W / Alt+D word back/fwd
@@ -208,7 +208,13 @@ key_u() { # keycode $1, modifier $2 (CSI-u and modifyOtherKeys funnel here)
   mod="$(num "$2")"
   ctrl=$(((mod - 1) & 4)); alt=$(((mod - 1) & 2)); super=$(((mod - 1) & 8))
   case "$code" in
-    13) if [ "$mod" -le 1 ]; then SUBMIT=1; else insert $'\n'; fi ;;
+    13)
+      if [ "$mod" -le 1 ] || [ "$super" -ne 0 ]; then
+        SUBMIT=1                                      # Enter / Cmd+Enter
+      else
+        insert $'\n'                                  # Shift/Alt/Ctrl+Enter
+      fi
+      ;;
     27) exit 0 ;;                                     # Esc
     127)
       if [ "$super" -ne 0 ]; then
@@ -328,7 +334,10 @@ while IFS= read -rsn1 key; do
   [ -e /tmp/annot-keylog-on ] && printf '%q\n' "$key" >> /tmp/annot-keylog
   case "$key" in
     $'\r') break ;;                                   # Enter → submit
-    '') insert $'\n' ;;                               # Ctrl+J
+    # \n also submits: some tty layers deliver Enter as \n (icrnl), and a
+    # note editor must never leave Enter meaning "newline" with no way to
+    # save. Costs Ctrl+J-as-newline — Shift/Alt+Enter cover that.
+    '') break ;;
     $'\e')
       if ! IFS= read -rsn1 -t 1 k2; then
         exit 0                                        # bare Esc → cancel
