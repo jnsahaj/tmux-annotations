@@ -102,14 +102,30 @@ echo "== markdown rendering =="
 printf 'selected text line\n' > "$D/.stage"
 rm -f "$D"/notes/*.note
 printf 'first line\x1b[13;2usecond line\r' | bash "$ROOT/scripts/add.sh" >/dev/null 2>&1
+sleep 1.1
+printf 'other selection\n' > "$D/.stage"
+printf 'note two\r' | bash "$ROOT/scripts/add.sh" >/dev/null 2>&1
 md="$(cd "$ROOT" && bash -c '. scripts/helpers.sh && notes_as_markdown')"
 case "$md" in
-  '## first line'*'second line'*'> selected text line'*)
-    pass=$((pass + 1)); echo "ok   multiline markdown render" ;;
+  '> selected text line'*'first line'*'second line'*'---'*'> other selection'*'note two'*)
+    pass=$((pass + 1)); echo "ok   markdown: quote first, no heading, rule-separated" ;;
   *)
-    fail=$((fail + 1)); echo "FAIL multiline markdown render:"; printf '%s\n' "$md" ;;
+    fail=$((fail + 1)); echo "FAIL markdown render:"; printf '%s\n' "$md" ;;
+esac
+
+echo "== status segment =="
+st="$(bash "$ROOT/scripts/status.sh")"
+case "$st" in
+  *2*) pass=$((pass + 1)); echo "ok   status shows count [$st]" ;;
+  *) fail=$((fail + 1)); echo "FAIL status with 2 notes: [$st]" ;;
 esac
 rm -f "$D"/notes/*.note
+st="$(bash "$ROOT/scripts/status.sh")"
+if [ -z "$st" ]; then
+  pass=$((pass + 1)); echo "ok   status empty with no notes"
+else
+  fail=$((fail + 1)); echo "FAIL status should be empty: [$st]"
+fi
 
 echo "== tmux_at_least parsing =="
 v() { # $1 fake version string, $2 maj, $3 min, $4 expected yes/no

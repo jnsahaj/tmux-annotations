@@ -14,4 +14,5 @@ fi
 notes_as_markdown | clip_copy
 rm -f "$NOTES_DIR"/*.note
 
+status_refresh
 tmux display-message "annotations: $count copied to clipboard & cleared"

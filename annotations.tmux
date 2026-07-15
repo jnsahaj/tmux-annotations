@@ -47,3 +47,25 @@ tmux bind-key -T copy-mode-vi "$key_annotate" run-shell -b "'$CURRENT_DIR/script
 tmux bind-key -T copy-mode "$key_annotate" run-shell -b "'$CURRENT_DIR/scripts/annotate.sh'"
 tmux bind-key "$key_view" run-shell -b "'$CURRENT_DIR/scripts/view.sh'"
 tmux bind-key "$key_copy" run-shell -b "'$CURRENT_DIR/scripts/copy.sh'"
+
+# ── status-line indicator (tmux 3.4+ ranges; @annotations-status off
+# disables). Shows a count while annotations exist; clicking it opens
+# the viewer. The mouse binding is only installed when MouseDown1Status
+# still has its default action, so customized setups are left alone.
+if [ "$(get_opt @annotations-status on)" = on ] && tmux_at_least 3 4; then
+  seg="#[range=user|annotations]#($CURRENT_DIR/scripts/status.sh)#[norange]"
+  sr="$(tmux show-option -gv status-right 2>/dev/null || true)"
+  case "$sr" in
+    *'range=user|annotations'*) ;;
+    *) tmux set-option -g status-right "$seg$sr" ;;
+  esac
+  mb="$(tmux list-keys -T root MouseDown1Status 2>/dev/null || true)"
+  case "$mb" in
+    '' | *select-window* | *annotations*)
+      tmux bind-key -T root MouseDown1Status if-shell -F \
+        '#{==:#{mouse_status_range},annotations}' \
+        "run-shell -b \"'$CURRENT_DIR/scripts/view.sh'\"" \
+        'select-window -t ='
+      ;;
+  esac
+fi

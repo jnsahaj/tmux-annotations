@@ -105,11 +105,6 @@ unesc_note() {
   printf '%b' "$1"
 }
 
-# Epoch → "Jul 15 14:32" (BSD date first, GNU fallback).
-fmt_time() {
-  date -r "$1" '+%b %d %H:%M' 2>/dev/null || date -d "@$1" '+%b %d %H:%M'
-}
-
 # stdin → system clipboard: macOS, Wayland, X11, WSL — first tool that
 # works wins. Always lands in the tmux buffer too; load-buffer -w asks
 # the outer terminal via OSC 52, which covers SSH sessions.
@@ -132,23 +127,21 @@ clip_copy() {
   rm -f "$tmpf"
 }
 
-# Render all notes as markdown: "## note (time)" + "> selection" blocks.
-# A multiline note becomes heading (first line) + paragraph (the rest).
+# Render all notes as markdown: quoted selection first, then the note,
+# entries separated by a horizontal rule.
 notes_as_markdown() {
-  local f base epoch note head rest first=1
+  local f note first=1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    base="$(basename "$f")"
-    epoch="${base%%-*}"
     note="$(unesc_note "$(head -n 1 "$f")")"
-    head="${note%%$'\n'*}"
-    rest=''
-    [ "$note" != "$head" ] && rest="${note#*$'\n'}"
-    [ "$first" = 1 ] || printf '\n'
+    [ "$first" = 1 ] || printf '\n---\n\n'
     first=0
-    printf '## %s  (%s)\n' "$head" "$(fmt_time "$epoch")"
-    [ -n "$rest" ] && printf '\n%s\n' "$rest"
-    printf '\n'
     tail -n +2 "$f" | sed 's/^/> /'
+    printf '\n%s\n' "$note"
   done < <(list_notes)
+}
+
+# Nudge the status line so the annotations indicator updates immediately.
+status_refresh() {
+  tmux refresh-client -S 2>/dev/null || true
 }

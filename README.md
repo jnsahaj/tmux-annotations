@@ -27,6 +27,9 @@ cover your content. (tmux's scrollback is read-only and popups are modal,
 so persistent in-place margin notes aren't possible — the overlay is the
 closest tmux allows.)
 
+While annotations exist, a count shows in the status bar (tmux 3.4+) —
+click it to open the viewer. Disable with `set -g @annotations-status off`.
+
 ## Compatibility
 
 - **tmux ≥ 3.2** (popups). On older tmux the keys explain the
@@ -37,7 +40,7 @@ closest tmux allows.)
 - Fancy input keys (Shift+Enter, Cmd/Opt combos) light up on terminals
   with kitty-CSI-u or modifyOtherKeys support (kitty, Ghostty, WezTerm,
   foot, recent xterm — plus `set -g extended-keys on`); everywhere else
-  the classic fallbacks (Alt+Enter, Ctrl+J, Ctrl+W, Ctrl+U, Ctrl+A/E…)
+  the classic fallbacks (Alt+Enter, Ctrl+W, Ctrl+U, Ctrl+A/E…)
   cover the same operations.
 - Non-UTF-8 locales get ASCII glyphs automatically.
 
@@ -72,6 +75,7 @@ set -g @annotations-key 'i'          # annotate key (copy-mode table)
 set -g @annotations-view-key 'a'     # toggle overlay (prefix table)
 set -g @annotations-copy-key 'Y'     # copy all & clear (prefix table)
 set -g @annotations-delete-key 'd'   # delete all, inside the overlay
+set -g @annotations-status 'on'      # status-bar count indicator
 set -g @annotations-dir '~/.local/share/tmux-annotations'
 ```
 

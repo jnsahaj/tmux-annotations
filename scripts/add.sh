@@ -418,4 +418,5 @@ file="$NOTES_DIR/$(date +%s)-$RANDOM.note"
 } > "$file"
 rm -f "$STAGE"
 
+status_refresh
 tmux display-message "annotations: saved — $(note_count) total. prefix+$(opt_key @annotations-view-key a) to view"

@@ -15,9 +15,9 @@ COPY_KEY="$(opt_key @annotations-copy-key Y)"
 DELETE_KEY="$(opt_key @annotations-delete-key d)"
 
 if has_utf8; then
-  PEN='✎' BAR='│' ELL='…' SEP='·' RULE='─'
+  BAR='│' ELL='…' SEP='·' RULE='─'
 else
-  PEN='*' BAR='|' ELL='...' SEP='-' RULE='-'
+  BAR='|' ELL='...' SEP='-' RULE='-'
 fi
 
 if [ "${1:-}" != "--inside" ]; then
@@ -26,7 +26,7 @@ if [ "${1:-}" != "--inside" ]; then
     tmux display-message "annotations: none yet — select text in copy mode and press $ANNOTATE_KEY"
     exit 0
   fi
-  open_popup 72 24 " $PEN annotations " "'$0' --inside"
+  open_popup 72 24 ' Annotations ' "'$0' --inside"
   exit 0
 fi
 
@@ -34,7 +34,6 @@ fi
 RESET=$'\e[0m'
 BOLD=$'\e[1m'
 DIM=$'\e[2m'
-ACCENT=$'\e[33m'        # timestamps
 
 COLS="${ANNOT_COLS:-}"
 ROWS="${ANNOT_ROWS:-}"
@@ -58,29 +57,28 @@ trunc() { # truncate $1 to $2 chars, appending an ellipsis when cut
   fi
 }
 
-rule() { # dim horizontal rule with the timestamp inset
-  local label=" $1 " out="$RULE$RULE"
-  while [ "${#out}" -lt $((W - ${#label} - 2)) ]; do out="$out$RULE"; done
-  BUF+=("  ${DIM}${RULE}${RULE}${RESET}${ACCENT}${label}${RESET}${DIM}${out}${RESET}")
+rule() { # dim separator between annotations
+  local out=''
+  while [ "${#out}" -lt "$W" ]; do out="$out$RULE"; done
+  BUF+=("  ${DIM}${out}${RESET}")
 }
 
 build() {
   BUF=()
-  local f base epoch note when line n shown
+  local f note line n shown first=1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    base="$(basename "$f")"
-    epoch="${base%%-*}"
-    when="$(fmt_time "$epoch")"
     note="$(unesc_note "$(head -n 1 "$f")")"
 
-    BUF+=("")
-    rule "$when"
-    # note text (possibly multiline), wrapped, bold
-    while IFS= read -r line; do
-      BUF+=("  ${BOLD}${line}${RESET}")
-    done < <(printf '%s\n' "$note" | fold -s -w "$W")
-    # quoted selection: one-line-per-line, char-truncated with ellipsis
+    if [ "$first" = 1 ]; then
+      first=0
+      BUF+=("")
+    else
+      BUF+=("")
+      rule
+      BUF+=("")
+    fi
+    # quoted selection first: one row per line, char-truncated w/ ellipsis
     n="$(tail -n +2 "$f" | wc -l | tr -d ' ')"
     shown=0
     while IFS= read -r line && [ "$shown" -lt "$MAX_SEL_LINES" ]; do
@@ -88,6 +86,10 @@ build() {
       shown=$((shown + 1))
     done < <(tail -n +2 "$f")
     [ "$n" -gt "$MAX_SEL_LINES" ] && BUF+=("   ${DIM}${BAR} $ELL $((n - MAX_SEL_LINES)) more lines${RESET}")
+    # then the note, wrapped, bold
+    while IFS= read -r line; do
+      BUF+=("  ${BOLD}${line}${RESET}")
+    done < <(printf '%s\n' "$note" | fold -s -w "$W")
   done < <(list_notes)
 }
 
@@ -136,6 +138,7 @@ while true; do
       IFS= read -rsn1 yn
       if [ "$yn" = y ]; then
         rm -f "$NOTES_DIR"/*.note
+        status_refresh
         tmux display-message "annotations: $count deleted"
         exit 0
       fi
