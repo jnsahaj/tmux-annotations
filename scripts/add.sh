@@ -26,6 +26,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sel="$(cat "$STAGE")"
 
 ROWS="$(tput lines 2>/dev/null || echo 10)"
+COLS="$(tput cols 2>/dev/null || echo 64)"
 
 # ── one-line selection preview, truncated with an ellipsis ────────────────
 # (before LC_ALL=C so truncation counts characters, not bytes)
@@ -140,18 +141,40 @@ cursor_down() {
   cur=$((nls + col))
 }
 
-# ── drawing ───────────────────────────────────────────────────────────────
+# ── drawing (soft wrap: long logical lines break at WRAP_W, every
+# display row keeps the 3-column indent; cursor math mirrors the wrap) ────
+WRAP_W=$((COLS - 4))
+[ "$WRAP_W" -lt 10 ] && WRAP_W=10
+
+wrap_rows() { # display rows a logical line of length $1 occupies
+  if [ "$1" -eq 0 ]; then
+    echo 1
+  else
+    echo $((($1 + WRAP_W - 1) / WRAP_W))
+  fi
+}
+
 draw() {
-  local pre tmp lline crow ccol
-  printf '\e[?25l\e[%d;1H\e[J' "$ORIGIN"
-  printf '   %s' "${buf//$'\n'/$'\n'   }"
+  local line pre crow ccol nrows=0
+  printf '\e[?25l\e[?7l\e[%d;1H\e[J' "$ORIGIN"
+  while IFS= read -r line; do
+    while [ "${#line}" -gt "$WRAP_W" ]; do
+      printf '   %s\n' "${line:0:$WRAP_W}"
+      line="${line:$WRAP_W}"
+    done
+    printf '   %s\n' "$line"
+  done <<< "$buf"
   printf '\e[%d;1H  \e[2m%s\e[0m' "$ROWS" "$HINT"
+  # cursor: full logical lines before it, then wrap position in its line
   pre="${buf:0:$cur}"
-  tmp="${pre//$'\n'/}"
-  crow=$((ORIGIN + ${#pre} - ${#tmp}))
-  lline="${pre##*$'\n'}"
-  ccol=$((4 + ${#lline}))
-  printf '\e[%d;%dH\e[?25h' "$crow" "$ccol"
+  while [ "$pre" != "${pre#*$'\n'}" ]; do
+    line="${pre%%$'\n'*}"
+    nrows=$((nrows + $(wrap_rows "${#line}")))
+    pre="${pre#*$'\n'}"
+  done
+  crow=$((ORIGIN + nrows + ${#pre} / WRAP_W))
+  ccol=$((4 + ${#pre} % WRAP_W))
+  printf '\e[?7h\e[%d;%dH\e[?25h' "$crow" "$ccol"
 }
 
 # NOTE: read -t must be an integer — /bin/bash 3.2 rejects fractional
@@ -165,15 +188,19 @@ read_csi() { # after ESC [ — collect until a final byte, echo the sequence
   printf '%s' "$seq"
 }
 
+# Extended-key protocols encode UNMODIFIED keys too (modifier field "1"
+# or absent) — those must map back to their legacy meaning, and before
+# the modifier wildcards below or plain Enter becomes a newline.
 handle_csi() {
   case "$1" in
+    13u | 13\;1u | 27\;1\;13~) SUBMIT=1 ;;            # plain Enter
     13\;*u | 27\;*\;13~) insert $'\n' ;;              # Shift/mod+Enter
-    27u) exit 0 ;;                                    # Esc (kitty encoding)
+    27u | 27\;1u | 27\;1\;27~) exit 0 ;;              # Esc
     3~) delete_range "$cur" "$(char_right "$cur")" ;; # Del (forward)
     3\;3~ | 3\;5~) delete_range "$cur" "$(word_right "$cur")" ;;
-    127\;3u | 127\;4u) delete_range "$(word_left "$cur")" "$cur" ;;    # Opt+BS
-    127\;9u | 127\;10u | 127\;13u) delete_range "$(line_start "$cur")" "$cur" ;; # Cmd+BS
-    127\;*u) delete_range "$(char_left "$cur")" "$cur" ;;
+    127\;3u | 127\;4u | 27\;[34]\;127~) delete_range "$(word_left "$cur")" "$cur" ;;    # Opt+BS
+    127\;9u | 127\;10u | 127\;13u | 27\;9\;127~ | 27\;13\;127~) delete_range "$(line_start "$cur")" "$cur" ;; # Cmd+BS
+    127u | 127\;*u | 27\;*\;127~) delete_range "$(char_left "$cur")" "$cur" ;; # Backspace
     D) cur="$(char_left "$cur")" ;;
     C) cur="$(char_right "$cur")" ;;
     A) cursor_up ;;
@@ -193,6 +220,7 @@ handle_csi() {
   esac
 }
 
+SUBMIT=0
 draw
 while IFS= read -rsn1 key; do
   case "$key" in
@@ -225,6 +253,7 @@ while IFS= read -rsn1 key; do
       if ! [[ "$key" < ' ' ]]; then insert "$key"; fi
       ;;
   esac
+  [ "$SUBMIT" = 1 ] && break
   draw
 done
 
