@@ -4,8 +4,8 @@
 # saved. Also unit-tests the tmux version parser. Needs tmux + bash.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export TMUX_ANNOT_TEST_DIR="${TMPDIR:-/tmp}/tmux-annotations-test-$$"
 D="$HOME/.local/share/tmux-annotations"
+mkdir -p "$D/notes"   # fresh machines: the stage write below needs it
 SOCK="annotest-$$"
 
 tmux -L "$SOCK" -f /dev/null new-session -d -x 80 -y 24
