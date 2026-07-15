@@ -13,20 +13,15 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [ -s "$STAGE" ] || exit 0
 sel="$(cat "$STAGE")"
-nlines="$(printf '%s\n' "$sel" | wc -l | tr -d ' ')"
 
-ROWS="$(tput lines 2>/dev/null || echo 12)"
+ROWS="$(tput lines 2>/dev/null || echo 10)"
 
-# ── selection preview (deterministic layout so the input row is known) ───
-printf '\n'
-printf '\033[2m'
-printf '%s\n' "$sel" | head -n 3 | cut -c1-58 | sed 's/^/   │ /'
-[ "$nlines" -gt 3 ] && printf '   │ … %s more lines\n' "$((nlines - 3))"
-printf '\033[0m\n'
-
-preview_lines=$nlines
-[ "$preview_lines" -gt 3 ] && preview_lines=4
-ORIGIN=$((preview_lines + 3))
+# ── one-line selection preview, truncated with an ellipsis ────────────────
+preview="$(printf '%s' "$sel" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')"
+maxw=56
+[ "${#preview}" -gt "$maxw" ] && preview="${preview:0:$maxw}…"
+printf '\n   \033[2m│ %s\033[0m\n' "$preview"
+ORIGIN=4
 
 # ── raw keyboard setup ────────────────────────────────────────────────────
 stty -icrnl 2>/dev/null || true          # keep Enter as \r, Ctrl+J as \n

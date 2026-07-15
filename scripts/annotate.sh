@@ -26,4 +26,4 @@ if ! [ -s "$STAGE" ]; then
   exit 0
 fi
 
-tmux display-popup -w 66 -h 12 -b rounded -S 'fg=colour221' -T ' New Annotation ' -E "'$DIR/add.sh'"
+tmux display-popup -w 66 -h 10 -b rounded -S 'fg=colour221' -T ' New Annotation ' -E "'$DIR/add.sh'"
