@@ -14,6 +14,7 @@ into an issue, PR review, or message.
 | anywhere | `prefix + a` | toggle the annotations overlay |
 | overlay (or `prefix + Y`) | `Y` | copy **all** annotations to clipboard as markdown, then clear them |
 | overlay | `j` / `k` / arrows | scroll |
+| overlay | `d` | delete **all** annotations without copying (asks `y/n`) |
 | overlay | `q` / `Esc` / `a` | close |
 
 In the note input, `Enter` saves and `Shift+Enter` inserts a newline
@@ -67,9 +68,10 @@ All keybindings and the storage location are options (set them in
 `tmux.conf` **before** the plugin loads; defaults shown):
 
 ```tmux
-set -g @annotations-key 'i'        # annotate key (copy-mode table)
-set -g @annotations-view-key 'a'   # toggle overlay (prefix table)
-set -g @annotations-copy-key 'Y'   # copy all & clear (prefix table)
+set -g @annotations-key 'i'          # annotate key (copy-mode table)
+set -g @annotations-view-key 'a'     # toggle overlay (prefix table)
+set -g @annotations-copy-key 'Y'     # copy all & clear (prefix table)
+set -g @annotations-delete-key 'd'   # delete all, inside the overlay
 set -g @annotations-dir '~/.local/share/tmux-annotations'
 ```
 

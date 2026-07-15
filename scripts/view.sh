@@ -2,7 +2,8 @@
 # Toggle the floating annotations overlay.
 # Outer call opens a popup running this same script with --inside;
 # --inside renders sticky-note blocks and handles keys:
-#   j/k or arrows scroll · Y copy all & clear · q / Esc / <view-key> close
+#   j/k or arrows scroll · Y copy all & clear · d delete all (confirmed)
+#   q / Esc / <view-key> close
 set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR/helpers.sh"
@@ -10,6 +11,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VIEW_KEY="$(opt_key @annotations-view-key a)"
 ANNOTATE_KEY="$(opt_key @annotations-key i)"
 COPY_KEY="$(opt_key @annotations-copy-key Y)"
+DELETE_KEY="$(opt_key @annotations-delete-key d)"
 
 if [ "${1:-}" != "--inside" ]; then
   count="$(note_count)"
@@ -109,7 +111,8 @@ while true; do
     printf '%s\n' "${BUF[$i]}"
   done
   # footer pinned to the last row
-  printf '\e[%d;1H  %sj/k scroll · %s copy all & clear · q close%s' "$ROWS" "$DIM" "$COPY_KEY" "$RESET"
+  printf '\e[%d;1H  %sj/k scroll · %s copy all & clear · %s delete all · q close%s' \
+    "$ROWS" "$DIM" "$COPY_KEY" "$DELETE_KEY" "$RESET"
 
   IFS= read -rsn1 key
   if [ "$key" = $'\e' ]; then
@@ -123,6 +126,16 @@ while true; do
   fi
   case "$key" in
     "$COPY_KEY") "$DIR/copy.sh"; exit 0 ;;
+    "$DELETE_KEY")
+      printf '\e[%d;1H\e[2K  %sdelete all %s annotation(s) without copying? (y/n)%s' \
+        "$ROWS" "$BOLD" "$count" "$RESET"
+      IFS= read -rsn1 yn
+      if [ "$yn" = y ]; then
+        rm -f "$NOTES_DIR"/*.note
+        tmux display-message "annotations: $count deleted"
+        exit 0
+      fi
+      ;;
     "$VIEW_KEY" | q) exit 0 ;;
     j) offset=$((offset + 2)) ;;
     k) offset=$((offset - 2)) ;;
