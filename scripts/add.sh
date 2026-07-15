@@ -2,11 +2,22 @@
 # Runs inside the input popup: shows a preview of the staged selection,
 # reads the note, saves both as a note file.
 #
-# The note input is a raw key loop rather than `read` so that
-# Shift+Enter / Alt+Enter / Ctrl+J insert a newline while plain Enter
-# submits. Shift+Enter needs the terminal to speak an extended-key
-# protocol (kitty CSI-u or xterm modifyOtherKeys) — both are enabled
-# below and both encodings are parsed; Alt+Enter works everywhere.
+# The note input is a small textarea implemented as a raw key loop —
+# bash `read -e` can't do multiline or distinguish Shift+Enter. It keeps
+# a byte cursor into the buffer (LC_ALL=C, with UTF-8-aware motion so
+# multibyte characters move/delete as one unit).
+#
+# Keys:
+#   Enter submit · Shift+Enter / Alt+Enter / Ctrl+J newline · Esc cancel
+#   arrows / Ctrl+B/F move · Opt+arrows / Alt+B/F word · Cmd+arrows,
+#   Home/End, Ctrl+A/E line start/end · Cmd+Up/Down buffer start/end
+#   Backspace / Del char · Opt+Backspace, Ctrl+W / Alt+D word back/fwd
+#   Cmd+Backspace, Ctrl+U to line start · Ctrl+K to line end
+#
+# Shift+Enter and the Cmd/Opt combos need an extended-key protocol —
+# kitty CSI-u or xterm modifyOtherKeys, both enabled below, both parsed.
+# Classic encodings (ESC DEL, ESC b/f, ctrl keys) are handled as
+# fallbacks so word ops work on plain terminals too.
 set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR/helpers.sh"
@@ -17,17 +28,20 @@ sel="$(cat "$STAGE")"
 ROWS="$(tput lines 2>/dev/null || echo 10)"
 
 # ── one-line selection preview, truncated with an ellipsis ────────────────
+# (before LC_ALL=C so truncation counts characters, not bytes)
 preview="$(printf '%s' "$sel" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')"
 maxw=56
 [ "${#preview}" -gt "$maxw" ] && preview="${preview:0:$maxw}…"
 printf '\n   \033[2m│ %s\033[0m\n' "$preview"
 ORIGIN=4
 
+export LC_ALL=C   # byte-indexed buffer; motion helpers handle UTF-8
+
 # ── raw keyboard setup ────────────────────────────────────────────────────
 stty -icrnl 2>/dev/null || true          # keep Enter as \r, Ctrl+J as \n
 printf '\e[>4;2m\e[>1u'                  # modifyOtherKeys=2 + kitty push
 cleanup() {
-  printf '\e[<u\e[>4;0m'
+  printf '\e[<u\e[>4;0m\e[?25h'
   stty icrnl 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -35,10 +49,109 @@ trap cleanup EXIT
 HINT='enter save · shift+enter newline · esc cancel'
 
 buf=''
+cur=0
+
+# ── buffer motion (byte cursor, UTF-8 aware) ──────────────────────────────
+is_cont() { # is $1 a UTF-8 continuation byte?
+  local b
+  b="$(printf '%d' "'${1:-}" 2>/dev/null || echo 0)"
+  b=$((b & 255))   # bash 3.2 reports high bytes as signed chars
+  [ "$b" -ge 128 ] && [ "$b" -lt 192 ]
+}
+
+is_space() {
+  case "${1:-}" in ' ' | $'\t' | $'\n') return 0 ;; *) return 1 ;; esac
+}
+
+char_left() {
+  local p=$1
+  [ "$p" -le 0 ] && { echo 0; return; }
+  p=$((p - 1))
+  while [ "$p" -gt 0 ] && is_cont "${buf:$p:1}"; do p=$((p - 1)); done
+  echo "$p"
+}
+
+char_right() {
+  local p=$1 len=${#buf}
+  [ "$p" -ge "$len" ] && { echo "$len"; return; }
+  p=$((p + 1))
+  while [ "$p" -lt "$len" ] && is_cont "${buf:$p:1}"; do p=$((p + 1)); done
+  echo "$p"
+}
+
+word_left() {
+  local p=$1
+  while [ "$p" -gt 0 ] && is_space "${buf:$((p - 1)):1}"; do p=$((p - 1)); done
+  while [ "$p" -gt 0 ] && ! is_space "${buf:$((p - 1)):1}"; do p=$((p - 1)); done
+  echo "$p"
+}
+
+word_right() {
+  local p=$1 len=${#buf}
+  while [ "$p" -lt "$len" ] && is_space "${buf:$p:1}"; do p=$((p + 1)); done
+  while [ "$p" -lt "$len" ] && ! is_space "${buf:$p:1}"; do p=$((p + 1)); done
+  echo "$p"
+}
+
+line_start() {
+  local p=$1
+  while [ "$p" -gt 0 ] && [ "${buf:$((p - 1)):1}" != $'\n' ]; do p=$((p - 1)); done
+  echo "$p"
+}
+
+line_end() {
+  local p=$1 len=${#buf}
+  while [ "$p" -lt "$len" ] && [ "${buf:$p:1}" != $'\n' ]; do p=$((p + 1)); done
+  echo "$p"
+}
+
+delete_range() { # delete [$1, $2), cursor lands at $1
+  [ "$1" -ge "$2" ] && return
+  buf="${buf:0:$1}${buf:$2}"
+  cur=$1
+}
+
+insert() {
+  buf="${buf:0:$cur}$1${buf:$cur}"
+  cur=$((cur + ${#1}))
+}
+
+cursor_up() {
+  local ls col pls
+  ls="$(line_start "$cur")"
+  [ "$ls" -eq 0 ] && return
+  col=$((cur - ls))
+  pls="$(line_start $((ls - 1)))"
+  local plen=$((ls - 1 - pls))
+  [ "$col" -gt "$plen" ] && col=$plen
+  cur=$((pls + col))
+}
+
+cursor_down() {
+  local ls col le len=${#buf} nls nle nlen
+  le="$(line_end "$cur")"
+  [ "$le" -ge "$len" ] && return
+  ls="$(line_start "$cur")"
+  col=$((cur - ls))
+  nls=$((le + 1))
+  nle="$(line_end "$nls")"
+  nlen=$((nle - nls))
+  [ "$col" -gt "$nlen" ] && col=$nlen
+  cur=$((nls + col))
+}
+
+# ── drawing ───────────────────────────────────────────────────────────────
 draw() {
-  printf '\e[%d;1H\e[J' "$ORIGIN"
+  local pre tmp lline crow ccol
+  printf '\e[?25l\e[%d;1H\e[J' "$ORIGIN"
   printf '   %s' "${buf//$'\n'/$'\n'   }"
-  printf '\e7\e[%d;1H  \e[2m%s\e[0m\e8' "$ROWS" "$HINT"
+  printf '\e[%d;1H  \e[2m%s\e[0m' "$ROWS" "$HINT"
+  pre="${buf:0:$cur}"
+  tmp="${pre//$'\n'/}"
+  crow=$((ORIGIN + ${#pre} - ${#tmp}))
+  lline="${pre##*$'\n'}"
+  ccol=$((4 + ${#lline}))
+  printf '\e[%d;%dH\e[?25h' "$crow" "$ccol"
 }
 
 # NOTE: read -t must be an integer — /bin/bash 3.2 rejects fractional
@@ -52,32 +165,64 @@ read_csi() { # after ESC [ — collect until a final byte, echo the sequence
   printf '%s' "$seq"
 }
 
+handle_csi() {
+  case "$1" in
+    13\;*u | 27\;*\;13~) insert $'\n' ;;              # Shift/mod+Enter
+    27u) exit 0 ;;                                    # Esc (kitty encoding)
+    3~) delete_range "$cur" "$(char_right "$cur")" ;; # Del (forward)
+    3\;3~ | 3\;5~) delete_range "$cur" "$(word_right "$cur")" ;;
+    127\;3u | 127\;4u) delete_range "$(word_left "$cur")" "$cur" ;;    # Opt+BS
+    127\;9u | 127\;10u | 127\;13u) delete_range "$(line_start "$cur")" "$cur" ;; # Cmd+BS
+    127\;*u) delete_range "$(char_left "$cur")" "$cur" ;;
+    D) cur="$(char_left "$cur")" ;;
+    C) cur="$(char_right "$cur")" ;;
+    A) cursor_up ;;
+    B) cursor_down ;;
+    1\;3D | 1\;5D) cur="$(word_left "$cur")" ;;       # Opt/Ctrl+Left
+    1\;3C | 1\;5C) cur="$(word_right "$cur")" ;;
+    1\;9D | 1\;13D) cur="$(line_start "$cur")" ;;     # Cmd+Left
+    1\;9C | 1\;13C) cur="$(line_end "$cur")" ;;
+    1\;9A) cur=0 ;;                                   # Cmd+Up
+    1\;9B) cur=${#buf} ;;                             # Cmd+Down
+    1\;*D) cur="$(char_left "$cur")" ;;
+    1\;*C) cur="$(char_right "$cur")" ;;
+    1\;*A) cursor_up ;;
+    1\;*B) cursor_down ;;
+    H | 1~ | 7~) cur="$(line_start "$cur")" ;;        # Home
+    F | 4~ | 8~) cur="$(line_end "$cur")" ;;          # End
+  esac
+}
+
 draw
 while IFS= read -rsn1 key; do
   case "$key" in
-    $'\r') break ;;                       # Enter → submit
-    '') buf+=$'\n' ;;                     # Ctrl+J → newline
+    $'\r') break ;;                                   # Enter → submit
+    '') insert $'\n' ;;                               # Ctrl+J
     $'\e')
       if ! IFS= read -rsn1 -t 1 k2; then
-        exit 0                            # bare Esc → cancel
+        exit 0                                        # bare Esc → cancel
       fi
       case "$k2" in
-        $'\r') buf+=$'\n' ;;              # Alt+Enter → newline
-        '[')
-          seq="$(read_csi)"
-          case "$seq" in
-            13\;*u | 27\;*\;13~) buf+=$'\n' ;;  # Shift/mod+Enter
-            27u) exit 0 ;;                       # Esc (kitty encoding)
-          esac
-          ;;
+        $'\r') insert $'\n' ;;                        # Alt+Enter
+        $'\x7f') delete_range "$(word_left "$cur")" "$cur" ;; # Opt+BS classic
+        b) cur="$(word_left "$cur")" ;;               # Alt+B
+        f) cur="$(word_right "$cur")" ;;              # Alt+F
+        d) delete_range "$cur" "$(word_right "$cur")" ;; # Alt+D
+        '[') handle_csi "$(read_csi)" ;;
       esac
       ;;
-    $'\x7f' | $'\b') buf="${buf%?}" ;;    # backspace
-    $'\x15') buf='' ;;                    # Ctrl+U → clear
-    $'\x03') exit 0 ;;                    # Ctrl+C → cancel
+    $'\x7f' | $'\b') delete_range "$(char_left "$cur")" "$cur" ;;
+    $'\x17') delete_range "$(word_left "$cur")" "$cur" ;;      # Ctrl+W
+    $'\x15') delete_range "$(line_start "$cur")" "$cur" ;;     # Ctrl+U
+    $'\x0b') delete_range "$cur" "$(line_end "$cur")" ;;       # Ctrl+K
+    $'\x01') cur="$(line_start "$cur")" ;;                     # Ctrl+A
+    $'\x05') cur="$(line_end "$cur")" ;;                       # Ctrl+E
+    $'\x02') cur="$(char_left "$cur")" ;;                      # Ctrl+B
+    $'\x06') cur="$(char_right "$cur")" ;;                     # Ctrl+F
+    $'\x03') exit 0 ;;                                         # Ctrl+C
     *)
-      # append printables (incl. multibyte bytes), ignore stray control bytes
-      if ! [[ "$key" < ' ' ]]; then buf+="$key"; fi
+      # insert printables (incl. multibyte bytes), ignore stray control bytes
+      if ! [[ "$key" < ' ' ]]; then insert "$key"; fi
       ;;
   esac
   draw
