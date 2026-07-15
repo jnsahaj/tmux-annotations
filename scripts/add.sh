@@ -188,41 +188,138 @@ read_csi() { # after ESC [ — collect until a final byte, echo the sequence
   printf '%s' "$seq"
 }
 
-# Extended-key protocols encode UNMODIFIED keys too (modifier field "1"
-# or absent) — those must map back to their legacy meaning, and before
-# the modifier wildcards below or plain Enter becomes a newline.
+# ── extended-key parsing ──────────────────────────────────────────────────
+# Terminals in kitty CSI-u or modifyOtherKeys mode may CSI-encode ANY key,
+# including unmodified ones, and kitty adds :subparams (alternate keys,
+# event types). Exact string matches are hopeless — extract keycode and
+# modifier numerically and dispatch on those. Modifier = 1 + bitmask
+# (shift 1, alt 2, ctrl 4, super/cmd 8).
+
+num() { case "${1:-}" in '' | *[!0-9]*) echo 1 ;; *) echo "$1" ;; esac }
+
+key_u() { # keycode $1, modifier $2 (CSI-u and modifyOtherKeys funnel here)
+  local code mod ctrl alt super c
+  code="$(num "$1")"
+  mod="$(num "$2")"
+  ctrl=$(((mod - 1) & 4)); alt=$(((mod - 1) & 2)); super=$(((mod - 1) & 8))
+  case "$code" in
+    13) if [ "$mod" -le 1 ]; then SUBMIT=1; else insert $'\n'; fi ;;
+    27) exit 0 ;;                                     # Esc
+    127)
+      if [ "$super" -ne 0 ]; then
+        delete_range "$(line_start "$cur")" "$cur"    # Cmd+Backspace
+      elif [ "$ctrl" -ne 0 ] || [ "$alt" -ne 0 ]; then
+        delete_range "$(word_left "$cur")" "$cur"     # Opt/Ctrl+Backspace
+      else
+        delete_range "$(char_left "$cur")" "$cur"
+      fi
+      ;;
+    9) : ;;                                           # Tab — ignore
+    *)
+      if [ "$ctrl" -ne 0 ]; then
+        case "$code" in
+          97) cur="$(line_start "$cur")" ;;                    # ^A
+          98) cur="$(char_left "$cur")" ;;                     # ^B
+          99) exit 0 ;;                                        # ^C
+          100) delete_range "$cur" "$(char_right "$cur")" ;;   # ^D
+          101) cur="$(line_end "$cur")" ;;                     # ^E
+          102) cur="$(char_right "$cur")" ;;                   # ^F
+          106) insert $'\n' ;;                                 # ^J
+          107) delete_range "$cur" "$(line_end "$cur")" ;;     # ^K
+          117) delete_range "$(line_start "$cur")" "$cur" ;;   # ^U
+          119) delete_range "$(word_left "$cur")" "$cur" ;;    # ^W
+        esac
+      elif [ "$alt" -ne 0 ]; then
+        case "$code" in
+          98) cur="$(word_left "$cur")" ;;                     # Alt+B
+          100) delete_range "$cur" "$(word_right "$cur")" ;;   # Alt+D
+          102) cur="$(word_right "$cur")" ;;                   # Alt+F
+        esac
+      elif [ "$code" -ge 32 ] && [ "$code" -le 126 ]; then
+        c="$(printf "\\$(printf '%03o' "$code")")"             # encoded printable
+        [ "$mod" -eq 2 ] && c="$(printf '%s' "$c" | tr '[:lower:]' '[:upper:]')"
+        insert "$c"
+      fi
+      ;;
+  esac
+}
+
+key_tilde() { # special key $1 (CSI ~ form), modifier $2
+  local code mod
+  code="$(num "$1")"
+  mod="$(num "$2")"
+  case "$code" in
+    3)
+      if [ "$mod" -ge 3 ]; then
+        delete_range "$cur" "$(word_right "$cur")"    # Opt/Ctrl+Del
+      else
+        delete_range "$cur" "$(char_right "$cur")"    # Del (forward)
+      fi
+      ;;
+    1 | 7) cur="$(line_start "$cur")" ;;              # Home
+    4 | 8) cur="$(line_end "$cur")" ;;                # End
+  esac
+}
+
+key_arrow() { # letter $1, modifier $2
+  local k="$1" mod ctrl alt super
+  mod="$(num "$2")"
+  ctrl=$(((mod - 1) & 4)); alt=$(((mod - 1) & 2)); super=$(((mod - 1) & 8))
+  case "$k" in
+    D)
+      if [ "$super" -ne 0 ]; then cur="$(line_start "$cur")"
+      elif [ "$ctrl" -ne 0 ] || [ "$alt" -ne 0 ]; then cur="$(word_left "$cur")"
+      else cur="$(char_left "$cur")"; fi
+      ;;
+    C)
+      if [ "$super" -ne 0 ]; then cur="$(line_end "$cur")"
+      elif [ "$ctrl" -ne 0 ] || [ "$alt" -ne 0 ]; then cur="$(word_right "$cur")"
+      else cur="$(char_right "$cur")"; fi
+      ;;
+    A) if [ "$super" -ne 0 ]; then cur=0; else cursor_up; fi ;;
+    B) if [ "$super" -ne 0 ]; then cur=${#buf}; else cursor_down; fi ;;
+    H) cur="$(line_start "$cur")" ;;
+    F) cur="$(line_end "$cur")" ;;
+  esac
+}
+
 handle_csi() {
-  case "$1" in
-    13u | 13\;1u | 27\;1\;13~) SUBMIT=1 ;;            # plain Enter
-    13\;*u | 27\;*\;13~) insert $'\n' ;;              # Shift/mod+Enter
-    27u | 27\;1u | 27\;1\;27~) exit 0 ;;              # Esc
-    3~) delete_range "$cur" "$(char_right "$cur")" ;; # Del (forward)
-    3\;3~ | 3\;5~) delete_range "$cur" "$(word_right "$cur")" ;;
-    127\;3u | 127\;4u | 27\;[34]\;127~) delete_range "$(word_left "$cur")" "$cur" ;;    # Opt+BS
-    127\;9u | 127\;10u | 127\;13u | 27\;9\;127~ | 27\;13\;127~) delete_range "$(line_start "$cur")" "$cur" ;; # Cmd+BS
-    127u | 127\;*u | 27\;*\;127~) delete_range "$(char_left "$cur")" "$cur" ;; # Backspace
-    D) cur="$(char_left "$cur")" ;;
-    C) cur="$(char_right "$cur")" ;;
-    A) cursor_up ;;
-    B) cursor_down ;;
-    1\;3D | 1\;5D) cur="$(word_left "$cur")" ;;       # Opt/Ctrl+Left
-    1\;3C | 1\;5C) cur="$(word_right "$cur")" ;;
-    1\;9D | 1\;13D) cur="$(line_start "$cur")" ;;     # Cmd+Left
-    1\;9C | 1\;13C) cur="$(line_end "$cur")" ;;
-    1\;9A) cur=0 ;;                                   # Cmd+Up
-    1\;9B) cur=${#buf} ;;                             # Cmd+Down
-    1\;*D) cur="$(char_left "$cur")" ;;
-    1\;*C) cur="$(char_right "$cur")" ;;
-    1\;*A) cursor_up ;;
-    1\;*B) cursor_down ;;
-    H | 1~ | 7~) cur="$(line_start "$cur")" ;;        # Home
-    F | 4~ | 8~) cur="$(line_end "$cur")" ;;          # End
+  local seq="$1" final body f1 f2 f3 rest
+  [ -n "$seq" ] || return 0
+  final="${seq:$((${#seq} - 1)):1}"
+  body="${seq%?}"
+  case "$final" in
+    u)
+      f1="${body%%;*}"
+      f2=''
+      case "$body" in *\;*) f2="${body#*;}"; f2="${f2%%;*}" ;; esac
+      key_u "${f1%%:*}" "${f2%%:*}"
+      ;;
+    '~')
+      f1="${body%%;*}"
+      rest=''
+      case "$body" in *\;*) rest="${body#*;}" ;; esac
+      f2="${rest%%;*}"
+      f3=''
+      case "$rest" in *\;*) f3="${rest#*;}"; f3="${f3%%;*}" ;; esac
+      if [ "${f1%%:*}" = 27 ] && [ -n "$f3" ]; then
+        key_u "${f3%%:*}" "${f2%%:*}"                 # xterm 27;mod;code~ form
+      else
+        key_tilde "${f1%%:*}" "${f2%%:*}"
+      fi
+      ;;
+    A | B | C | D | H | F)
+      f2=''
+      case "$body" in *\;*) f2="${body#*;}"; f2="${f2%%[:;]*}" ;; esac
+      key_arrow "$final" "$f2"
+      ;;
   esac
 }
 
 SUBMIT=0
 draw
 while IFS= read -rsn1 key; do
+  [ -e /tmp/annot-keylog-on ] && printf '%q\n' "$key" >> /tmp/annot-keylog
   case "$key" in
     $'\r') break ;;                                   # Enter → submit
     '') insert $'\n' ;;                               # Ctrl+J
@@ -246,6 +343,7 @@ while IFS= read -rsn1 key; do
     $'\x01') cur="$(line_start "$cur")" ;;                     # Ctrl+A
     $'\x05') cur="$(line_end "$cur")" ;;                       # Ctrl+E
     $'\x02') cur="$(char_left "$cur")" ;;                      # Ctrl+B
+    $'\x04') delete_range "$cur" "$(char_right "$cur")" ;;     # Ctrl+D
     $'\x06') cur="$(char_right "$cur")" ;;                     # Ctrl+F
     $'\x03') exit 0 ;;                                         # Ctrl+C
     *)
