@@ -36,6 +36,13 @@ if ! tmux_at_least 3 2; then
   exit 0
 fi
 
+# Cache the popup-capability tier so the hot path never re-runs tmux -V.
+if tmux_at_least 3 3; then
+  tmux set-option -g @annotations-caps 33
+else
+  tmux set-option -g @annotations-caps 32
+fi
+
 tmux bind-key -T copy-mode-vi "$key_annotate" run-shell -b "'$CURRENT_DIR/scripts/annotate.sh'"
 tmux bind-key -T copy-mode "$key_annotate" run-shell -b "'$CURRENT_DIR/scripts/annotate.sh'"
 tmux bind-key "$key_view" run-shell -b "'$CURRENT_DIR/scripts/view.sh'"

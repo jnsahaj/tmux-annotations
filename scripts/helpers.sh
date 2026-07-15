@@ -1,19 +1,35 @@
 # shellcheck shell=bash
 # Shared helpers — sourced by every script.
 
-_opt_dir="$(tmux show-option -gqv @annotations-dir 2>/dev/null || true)"
+# All plugin options in ONE tmux round-trip — every tmux client call is
+# a fork + socket round-trip (~10-20ms), and they add up to visible lag
+# on the annotate hot path.
+_annot_opts="$(tmux show-options -g 2>/dev/null | grep '^@annotations-' || true)"
+
+annot_opt() { # $1 option name without the @annotations- prefix, $2 default
+  local v
+  case "$_annot_opts" in
+    *"@annotations-$1 "*)
+      v="${_annot_opts#*@annotations-"$1" }"
+      v="${v%%$'\n'*}"
+      case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; esac
+      printf '%s' "$v"
+      ;;
+    *) printf '%s' "$2" ;;
+  esac
+}
+
+# Back-compat shim: callers pass the full option name.
+opt_key() {
+  annot_opt "${1#@annotations-}" "$2"
+}
+
+_opt_dir="$(annot_opt dir '')"
 DATA_DIR="${_opt_dir:-$HOME/.local/share/tmux-annotations}"
 NOTES_DIR="$DATA_DIR/notes"
 # shellcheck disable=SC2034  # used by the sourcing scripts
 STAGE="$DATA_DIR/.stage"
 mkdir -p "$NOTES_DIR"
-
-# Resolve a configured key, for hints in messages.
-opt_key() {
-  local v
-  v="$(tmux show-option -gqv "$1" 2>/dev/null || true)"
-  printf '%s' "${v:-$2}"
-}
 
 # Is the running tmux at least version $1.$2? Handles "3.5a",
 # "next-3.6", "3.3-rc" etc.
@@ -37,19 +53,30 @@ has_utf8() {
   esac
 }
 
-# Open a styled popup, degrading gracefully: border/style/title flags
-# need tmux >= 3.3; size is clamped to the client so small terminals
-# don't reject it.  $1 w, $2 h, $3 title, $4 command
+# Open a styled popup, degrading gracefully: border/style/title/-e flags
+# need tmux >= 3.3 (capability cached in @annotations-caps at load time);
+# size is clamped to the client so small terminals don't reject it.
+# $1 w, $2 h, $3 title, $4 command, $5/$6 client w/h if already known
 open_popup() {
-  local w=$1 h=$2 cw ch
-  cw="$(tmux display-message -p '#{client_width}' 2>/dev/null || true)"
-  ch="$(tmux display-message -p '#{client_height}' 2>/dev/null || true)"
+  local w=$1 h=$2 cw="${5:-}" ch="${6:-}" caps wh
+  if [ -z "$cw" ] || [ -z "$ch" ]; then
+    wh="$(tmux display-message -p '#{client_width} #{client_height}' 2>/dev/null || true)"
+    cw="${wh%% *}"
+    ch="${wh##* }"
+  fi
   case "$cw" in '' | *[!0-9]*) cw=0 ;; esac
   case "$ch" in '' | *[!0-9]*) ch=0 ;; esac
   [ "$cw" -gt 8 ] && [ "$w" -gt $((cw - 2)) ] && w=$((cw - 2))
   [ "$ch" -gt 8 ] && [ "$h" -gt $((ch - 2)) ] && h=$((ch - 2))
-  if tmux_at_least 3 3; then
-    tmux display-popup -w "$w" -h "$h" -b rounded -S 'fg=colour221' -T "$3" -E "$4"
+  caps="$(annot_opt caps '')"
+  if [ -z "$caps" ]; then
+    if tmux_at_least 3 3; then caps=33; else caps=32; fi
+  fi
+  if [ "$caps" -ge 33 ]; then
+    # -e hands the popup its interior size so the app can skip tput
+    tmux display-popup -w "$w" -h "$h" \
+      -e "ANNOT_COLS=$((w - 2))" -e "ANNOT_ROWS=$((h - 2))" \
+      -b rounded -S 'fg=colour221' -T "$3" -E "$4"
   else
     tmux display-popup -w "$w" -h "$h" -E "$4"
   fi

@@ -6,27 +6,29 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/helpers.sh disable=SC1091
 . "$DIR/helpers.sh"
 
-PANE="${TMUX_PANE:-$(tmux display-message -p '#{pane_id}')}"
+# Hot path: three tmux round-trips total. Everything queryable is
+# batched into one display-message; copy-pipe and clear-selection share
+# one client call; the popup opens IMMEDIATELY and add.sh waits for the
+# async copy-pipe write in parallel with the popup drawing.
+PANE="${TMUX_PANE:-}"
+if [ -n "$PANE" ]; then
+  info="$(tmux display-message -p -t "$PANE" '#{selection_present} #{client_width} #{client_height}')"
+else
+  info="$(tmux display-message -p '#{pane_id} #{selection_present} #{client_width} #{client_height}')"
+  PANE="${info%% *}"
+  info="${info#* }"
+fi
+selp="${info%% *}"
+info="${info#* }"
+cw="${info%% *}"
+ch="${info##* }"
 
-if [ "$(tmux display-message -p -t "$PANE" '#{selection_present}')" != "1" ]; then
+if [ "$selp" != "1" ]; then
   tmux display-message 'annotations: select some text first (v / Space to start a selection)'
   exit 0
 fi
 
 : > "$STAGE"
-tmux send-keys -t "$PANE" -X copy-pipe "cat > '$STAGE'"
-tmux send-keys -t "$PANE" -X clear-selection
+tmux send-keys -t "$PANE" -X copy-pipe "cat > '$STAGE'" \; send-keys -t "$PANE" -X clear-selection
 
-# copy-pipe writes asynchronously — wait briefly for the selection to land.
-tries=0
-while [ "$tries" -lt 40 ]; do
-  [ -s "$STAGE" ] && break
-  sleep 0.05
-  tries=$((tries + 1))
-done
-if ! [ -s "$STAGE" ]; then
-  tmux display-message 'annotations: could not read selection'
-  exit 0
-fi
-
-open_popup 66 10 ' New Annotation ' "'$DIR/add.sh'"
+open_popup 66 10 ' New Annotation ' "'$DIR/add.sh'" "$cw" "$ch"

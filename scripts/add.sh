@@ -23,19 +23,36 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/helpers.sh disable=SC1091
 . "$DIR/helpers.sh"
 
+# The copy-pipe that stages the selection runs in parallel with the
+# popup opening — wait briefly for it (almost always already there).
+tries=0
+while ! [ -s "$STAGE" ] && [ "$tries" -lt 30 ]; do
+  sleep 0.02
+  tries=$((tries + 1))
+done
 [ -s "$STAGE" ] || exit 0
 sel="$(cat "$STAGE")"
 
-ROWS="$(tput lines 2>/dev/null || echo 10)"
-COLS="$(tput cols 2>/dev/null || echo 64)"
+# Interior size arrives via -e from open_popup (tmux 3.3+); tput is the
+# fallback — two subprocess spawns we skip on the common path.
+ROWS="${ANNOT_ROWS:-}"
+COLS="${ANNOT_COLS:-}"
+case "$ROWS" in '' | *[!0-9]*) ROWS="$(tput lines 2>/dev/null || echo 10)" ;; esac
+case "$COLS" in '' | *[!0-9]*) COLS="$(tput cols 2>/dev/null || echo 64)" ;; esac
 case "$ROWS" in '' | *[!0-9]*) ROWS=10 ;; esac
 case "$COLS" in '' | *[!0-9]*) COLS=64 ;; esac
 
 if has_utf8; then BAR='│' ELL='…' SEP='·'; else BAR='|' ELL='...' SEP='-'; fi
 
 # ── one-line selection preview, truncated with an ellipsis ────────────────
-# (before LC_ALL=C so truncation counts characters, not bytes)
-preview="$(printf '%s' "$sel" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')"
+# Pure bash (no tr|sed forks); before LC_ALL=C so truncation counts
+# characters, not bytes. Only the head of the selection matters.
+preview="${sel:0:400}"
+preview="${preview//$'\n'/ }"
+preview="${preview//$'\t'/ }"
+while [ "${preview#*  }" != "$preview" ]; do preview="${preview//  / }"; done
+preview="${preview# }"
+preview="${preview% }"
 maxw=56
 [ "${#preview}" -gt "$maxw" ] && preview="${preview:0:$maxw}$ELL"
 printf '\n   \033[2m%s %s\033[0m\n' "$BAR" "$preview"

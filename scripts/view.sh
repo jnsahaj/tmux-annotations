@@ -39,8 +39,10 @@ RESET=$'\e[0m'
 BOLD=$'\e[1m'
 DIM=$'\e[2m'
 
-COLS="$(tput cols 2>/dev/null || echo 70)"
-ROWS="$(tput lines 2>/dev/null || echo 22)"
+COLS="${ANNOT_COLS:-}"
+ROWS="${ANNOT_ROWS:-}"
+case "$COLS" in '' | *[!0-9]*) COLS="$(tput cols 2>/dev/null || echo 70)" ;; esac
+case "$ROWS" in '' | *[!0-9]*) ROWS="$(tput lines 2>/dev/null || echo 22)" ;; esac
 case "$COLS" in '' | *[!0-9]*) COLS=70 ;; esac
 case "$ROWS" in '' | *[!0-9]*) ROWS=22 ;; esac
 NOTE_W=$((COLS - 6))
