@@ -6,6 +6,7 @@
 #   q / Esc / <view-key> close
 set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/helpers.sh disable=SC1091
 . "$DIR/helpers.sh"
 
 VIEW_KEY="$(opt_key @annotations-view-key a)"
@@ -13,13 +14,19 @@ ANNOTATE_KEY="$(opt_key @annotations-key i)"
 COPY_KEY="$(opt_key @annotations-copy-key Y)"
 DELETE_KEY="$(opt_key @annotations-delete-key d)"
 
+if has_utf8; then
+  PEN='✎' CURL='◣' BAR='▏' ELL='…' SEP='·'
+else
+  PEN='*' CURL=' ' BAR='|' ELL='...' SEP='-'
+fi
+
 if [ "${1:-}" != "--inside" ]; then
   count="$(note_count)"
   if [ "$count" -eq 0 ]; then
     tmux display-message "annotations: none yet — select text in copy mode and press $ANNOTATE_KEY"
     exit 0
   fi
-  tmux display-popup -w 72 -h 24 -b rounded -S 'fg=colour221' -T ' ✎ annotations ' -E "'$0' --inside"
+  open_popup 72 24 " $PEN annotations " "'$0' --inside"
   exit 0
 fi
 
@@ -32,8 +39,10 @@ RESET=$'\e[0m'
 BOLD=$'\e[1m'
 DIM=$'\e[2m'
 
-COLS="$(tput cols)"
-ROWS="$(tput lines)"
+COLS="$(tput cols 2>/dev/null || echo 70)"
+ROWS="$(tput lines 2>/dev/null || echo 22)"
+case "$COLS" in '' | *[!0-9]*) COLS=70 ;; esac
+case "$ROWS" in '' | *[!0-9]*) ROWS=22 ;; esac
 NOTE_W=$((COLS - 6))
 [ "$NOTE_W" -gt 60 ] && NOTE_W=60
 INNER=$((NOTE_W - 2))
@@ -68,8 +77,8 @@ build() {
 
     BUF+=("")
     # top edge with a "curl" on the right corner
-    BUF+=("  ${PAPER}${EDGE} $(printf '%*s' "$INNER" '')${RESET}${EDGE}◣${RESET}")
-    paper_line "${DIM}" "✎ $when"
+    BUF+=("  ${PAPER}${EDGE} $(printf '%*s' "$INNER" '')${RESET}${EDGE}${CURL}${RESET}")
+    paper_line "${DIM}" "$PEN $when"
     # wrapped note text (possibly multiline), bold
     while IFS= read -r line; do
       paper_line "${BOLD}" "$line"
@@ -79,10 +88,10 @@ build() {
     n="$(tail -n +2 "$f" | wc -l | tr -d ' ')"
     shown=0
     while IFS= read -r line && [ "$shown" -lt "$MAX_SEL_LINES" ]; do
-      paper_line "${FAINT}" "▏ ${line}"
+      paper_line "${FAINT}" "$BAR ${line}"
       shown=$((shown + 1))
     done < <(tail -n +2 "$f" | cut -c1-"$((INNER - 2))")
-    [ "$n" -gt "$MAX_SEL_LINES" ] && paper_line "${FAINT}" "▏ … $((n - MAX_SEL_LINES)) more lines"
+    [ "$n" -gt "$MAX_SEL_LINES" ] && paper_line "${FAINT}" "$BAR $ELL $((n - MAX_SEL_LINES)) more lines"
     BUF+=("  ${PAPER} $(printf '%*s' "$INNER" '') ${RESET}")
   done < <(list_notes)
 }
@@ -111,8 +120,8 @@ while true; do
     printf '%s\n' "${BUF[$i]}"
   done
   # footer pinned to the last row
-  printf '\e[%d;1H  %sj/k scroll · %s copy all & clear · %s delete all · q close%s' \
-    "$ROWS" "$DIM" "$COPY_KEY" "$DELETE_KEY" "$RESET"
+  printf '\e[%d;1H  %sj/k scroll %s %s copy all & clear %s %s delete all %s q close%s' \
+    "$ROWS" "$DIM" "$SEP" "$COPY_KEY" "$SEP" "$DELETE_KEY" "$SEP" "$RESET"
 
   IFS= read -rsn1 key
   if [ "$key" = $'\e' ]; then

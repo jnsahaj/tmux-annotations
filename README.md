@@ -36,12 +36,26 @@ What lands on your clipboard:
 >     at TCPConnectWrap.afterConnect
 ```
 
-Copied via `pbcopy` / `wl-copy` / `xclip` (whichever exists), and always
-into the tmux paste buffer too.
+Copied via `pbcopy` (macOS), `wl-copy` (Wayland), `xclip`/`xsel` (X11),
+or `clip.exe` (WSL) — whichever works — and always into the tmux paste
+buffer (`prefix + ]`). Over SSH with none of those, tmux forwards it to
+your local clipboard via OSC 52 when the terminal allows it.
+
+## Compatibility
+
+- **tmux ≥ 3.2** (popups). On older tmux the keys explain the
+  requirement instead of erroring; popup styling degrades gracefully
+  on 3.2 (borders/titles need 3.3).
+- **bash** anywhere in `$PATH` — works on macOS's stock bash 3.2 and
+  modern bash alike. macOS, Linux, WSL, BSD.
+- Fancy input keys (Shift+Enter, Cmd/Opt combos) light up on terminals
+  with kitty-CSI-u or modifyOtherKeys support (kitty, Ghostty, WezTerm,
+  foot, recent xterm — plus `set -g extended-keys on`); everywhere else
+  the classic fallbacks (Alt+Enter, Ctrl+J, Ctrl+W, Ctrl+U, Ctrl+A/E…)
+  cover the same operations.
+- Non-UTF-8 locales get ASCII glyphs automatically.
 
 ## Install
-
-Requires tmux ≥ 3.2 (popups).
 
 ### TPM
 

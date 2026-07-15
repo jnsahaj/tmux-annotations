@@ -12,6 +12,8 @@
 #   @annotations-dir        data directory (default: ~/.local/share/tmux-annotations)
 set -u
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/helpers.sh disable=SC1091
+. "$CURRENT_DIR/scripts/helpers.sh"
 
 get_opt() {
   local v
@@ -22,6 +24,17 @@ get_opt() {
 key_annotate="$(get_opt @annotations-key i)"
 key_view="$(get_opt @annotations-view-key a)"
 key_copy="$(get_opt @annotations-copy-key Y)"
+
+if ! tmux_at_least 3 2; then
+  # No display-popup before 3.2 — bind the keys to a clear explanation
+  # instead of letting the scripts fail cryptically.
+  msg='tmux-annotations needs tmux 3.2+ (display-popup)'
+  tmux bind-key -T copy-mode-vi "$key_annotate" display-message "$msg"
+  tmux bind-key -T copy-mode "$key_annotate" display-message "$msg"
+  tmux bind-key "$key_view" display-message "$msg"
+  tmux bind-key "$key_copy" display-message "$msg"
+  exit 0
+fi
 
 tmux bind-key -T copy-mode-vi "$key_annotate" run-shell -b "'$CURRENT_DIR/scripts/annotate.sh'"
 tmux bind-key -T copy-mode "$key_annotate" run-shell -b "'$CURRENT_DIR/scripts/annotate.sh'"

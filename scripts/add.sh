@@ -20,6 +20,7 @@
 # fallbacks so word ops work on plain terminals too.
 set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/helpers.sh disable=SC1091
 . "$DIR/helpers.sh"
 
 [ -s "$STAGE" ] || exit 0
@@ -27,13 +28,17 @@ sel="$(cat "$STAGE")"
 
 ROWS="$(tput lines 2>/dev/null || echo 10)"
 COLS="$(tput cols 2>/dev/null || echo 64)"
+case "$ROWS" in '' | *[!0-9]*) ROWS=10 ;; esac
+case "$COLS" in '' | *[!0-9]*) COLS=64 ;; esac
+
+if has_utf8; then BAR='│' ELL='…' SEP='·'; else BAR='|' ELL='...' SEP='-'; fi
 
 # ── one-line selection preview, truncated with an ellipsis ────────────────
 # (before LC_ALL=C so truncation counts characters, not bytes)
 preview="$(printf '%s' "$sel" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')"
 maxw=56
-[ "${#preview}" -gt "$maxw" ] && preview="${preview:0:$maxw}…"
-printf '\n   \033[2m│ %s\033[0m\n' "$preview"
+[ "${#preview}" -gt "$maxw" ] && preview="${preview:0:$maxw}$ELL"
+printf '\n   \033[2m%s %s\033[0m\n' "$BAR" "$preview"
 ORIGIN=4
 
 export LC_ALL=C   # byte-indexed buffer; motion helpers handle UTF-8
@@ -47,7 +52,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-HINT='enter save · shift+enter newline · esc cancel'
+HINT="enter save $SEP shift+enter newline $SEP esc cancel"
 
 buf=''
 cur=0
@@ -236,6 +241,7 @@ key_u() { # keycode $1, modifier $2 (CSI-u and modifyOtherKeys funnel here)
           102) cur="$(word_right "$cur")" ;;                   # Alt+F
         esac
       elif [ "$code" -ge 32 ] && [ "$code" -le 126 ]; then
+        # shellcheck disable=SC2059  # building an octal escape on purpose
         c="$(printf "\\$(printf '%03o' "$code")")"             # encoded printable
         [ "$mod" -eq 2 ] && c="$(printf '%s' "$c" | tr '[:lower:]' '[:upper:]')"
         insert "$c"

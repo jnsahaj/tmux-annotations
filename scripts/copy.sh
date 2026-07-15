@@ -2,6 +2,7 @@
 # Copy ALL annotations to the clipboard as markdown, then remove them.
 set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/helpers.sh disable=SC1091
 . "$DIR/helpers.sh"
 
 count="$(note_count)"
