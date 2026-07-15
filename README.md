@@ -1,10 +1,9 @@
-# tmux-annotations ✎
+# tmux-annotations
 
 Leave comments on your terminal scrollback.
+Perfect for coding agent TUIs when you want to leave feedback on the huge plans agents come up with.
 
-Select text in copy mode, attach a note to it, keep working — then dump
-all your annotations to the clipboard as tidy markdown, ready to paste
-into an issue, PR review, or message.
+Select text in copy mode, attach a note to it, copy all of them to the clipboard and send it to your agent
 
 ## Usage
 
@@ -27,20 +26,6 @@ Annotations are invisible until you toggle the overlay, so they never
 cover your content. (tmux's scrollback is read-only and popups are modal,
 so persistent in-place margin notes aren't possible — the overlay is the
 closest tmux allows.)
-
-What lands on your clipboard:
-
-```markdown
-## check this error later  (Jul 15 14:32)
-
-> Error: connect ECONNREFUSED 127.0.0.1:5432
->     at TCPConnectWrap.afterConnect
-```
-
-Copied via `pbcopy` (macOS), `wl-copy` (Wayland), `xclip`/`xsel` (X11),
-or `clip.exe` (WSL) — whichever works — and always into the tmux paste
-buffer (`prefix + ]`). Over SSH with none of those, tmux forwards it to
-your local clipboard via OSC 52 when the terminal allows it.
 
 ## Compatibility
 
