@@ -1,9 +1,14 @@
+
+
 # tmux-annotations
 
 Leave comments on your terminal scrollback.
 Perfect for coding agent TUIs when you want to leave feedback on the huge plans agents come up with.
 
 Select text in copy mode, attach a note to it, copy all of them to the clipboard and send it to your agent
+
+
+https://github.com/user-attachments/assets/2dc55270-30bc-4458-9d7c-d69ab16feb1b
 
 ## Usage
 
